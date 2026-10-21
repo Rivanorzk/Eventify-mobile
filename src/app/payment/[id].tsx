@@ -28,6 +28,13 @@ function formatCountdown(totalSec: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+// Total yang ditagihkan Midtrans = harga tiket setelah diskon + biaya layanan
+// (grand_total). Order lama yang dibuat sebelum ada biaya layanan belum punya
+// grand_total, jadi pakai final_price.
+type OrderWithFee = Order & { grand_total?: number | string | null };
+const payableTotal = (o: Order) =>
+  Number((o as OrderWithFee).grand_total ?? o.final_price);
+
 export default function PaymentScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -222,7 +229,7 @@ export default function PaymentScreen() {
         <Text style={styles.headerTitle}>Pembayaran</Text>
         {order && (
           <Text style={styles.headerSub} numberOfLines={1}>
-            {order.invoice_number} · {formatRupiah(Number(order.final_price))}
+            {order.invoice_number} · {formatRupiah(payableTotal(order))}
           </Text>
         )}
       </View>

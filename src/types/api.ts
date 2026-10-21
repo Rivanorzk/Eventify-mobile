@@ -193,3 +193,88 @@ export interface AppNotification {
   updated_at?: string;
   [k: string]: any;
 }
+
+// src/types/api.ts (tambahkan)
+
+export interface OrderTicket {
+  id: number;
+  order_detail_id: number;
+  ticket_code: string;
+  status: 'active' | 'used' | 'expired' | 'cancelled' | string;
+  category_name?: string;
+  area_name?: string | null;
+  gate_name?: string | null;
+  [k: string]: any;
+}
+
+export interface OrderDetailLine {
+  id: number;
+  order_id: number;
+  event_ticket_category_id: number;
+  quantity: number;
+  price: number;
+  subtotal: number;
+  category_name?: string;
+  tickets?: OrderTicket[];
+  [k: string]: any;
+}
+
+export interface OrderPayment {
+  id: number;
+  order_id: number;
+  midtrans_order_id: string;
+  transaction_id?: string | null;
+  payment_type?: string | null;
+  transaction_status: string;
+  fraud_status?: string | null;
+  gross_amount: number;
+  transaction_time?: string | null;
+  settlement_time?: string | null;
+  expiry_time?: string | null;
+  [k: string]: any;
+}
+
+export interface OrderDetail {
+  id: number;
+  invoice_number: string;
+
+  // Relasi
+  event_id: number;
+  customer_id: number;
+  voucher_id?: number | null;
+
+  // Event snapshot
+  event_title?: string;
+  event_date?: string;
+  start_time?: string;
+  end_time?: string;
+  event_location?: string;
+  event_poster?: string;
+
+  // Customer snapshot
+  customer_username?: string;
+  customer_email?: string;
+  customer_phone?: string;
+
+  // Voucher snapshot
+  voucher_promo_code?: string | null;
+
+  // Harga
+  total_price: number;
+  discount_amount: number;
+  final_price: number;
+  service_fee_percent: number;
+  service_fee: number;
+  grand_total: number;
+
+  // Status
+  status: 'pending' | 'paid' | 'expired' | 'cancelled' | string;
+  expired_at?: string | null;
+  created_at: string;
+
+  // Relasi nested
+  order_details?: OrderDetailLine[];
+  tickets?: OrderTicket[];      // flat kalau backend bikin flat
+  payment?: OrderPayment | null;
+  [k: string]: any;
+}

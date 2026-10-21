@@ -43,6 +43,31 @@ function estimateDiscount(v: Voucher | null, subtotal: number): number {
   return Math.min(raw, subtotal);
 }
 
+// Persentase biaya layanan diambil OTOMATIS dari backend (event.service_fee_percent,
+// sama dengan pengaturan superadmin), jadi tidak perlu diubah manual. Env
+// EXPO_PUBLIC_SERVICE_FEE_PERCENT hanya cadangan kalau backend belum mengirimnya.
+// Angka di checkout tetap PERKIRAAN; total final dihitung server saat order
+// dibuat dan ditampilkan di halaman pembayaran.
+const ENV_FEE_PERCENT = Number(process.env.EXPO_PUBLIC_SERVICE_FEE_PERCENT);
+
+type EventWithFee = EventDetail & { service_fee_percent?: number | string | null };
+
+function resolveFeePercent(fromApi: number | string | null | undefined): number {
+  const value =
+    fromApi !== null && fromApi !== undefined ? Number(fromApi) : ENV_FEE_PERCENT;
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+// Rumus sama dengan backend: dari harga tiket setelah diskon, dibulatkan ke rupiah.
+function estimateServiceFee(amountAfterDiscount: number, percent: number): number {
+  return percent > 0 ? Math.round((amountAfterDiscount * percent) / 100) : 0;
+}
+
+// 5 -> "5%", 2.5 -> "2,5%" (tanpa Intl supaya aman di semua mesin JS)
+function formatPercent(value: number): string {
+  return `${String(Number(value.toFixed(2))).replace('.', ',')}%`;
+}
+
 // ─── Screen ────────────────────────────────────────────────────
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -139,7 +164,14 @@ export default function CheckoutScreen() {
     [selectedVoucher, subtotal]
   );
 
+  // Harga tiket setelah diskon, lalu ditambah biaya layanan (perkiraan).
   const finalPrice = Math.max(subtotal - discount, 0);
+  const feePercent = resolveFeePercent(
+    (event as EventWithFee | null)?.service_fee_percent
+  );
+  const hasFeeEstimate = feePercent > 0;
+  const serviceFee = estimateServiceFee(finalPrice, feePercent);
+  const grandTotal = finalPrice + serviceFee;
 
   // Auto-release voucher kalau quantity turun di bawah minimum
   useEffect(() => {
@@ -353,12 +385,29 @@ export default function CheckoutScreen() {
                 </Text>
               </View>
             )}
+
+            {hasFeeEstimate && (
+              <View style={styles.sumRow}>
+                <Text style={styles.sumLabel}>
+                  Biaya Layanan ({formatPercent(feePercent)})
+                </Text>
+                <Text style={styles.sumValue}>{formatRupiah(serviceFee)}</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Bayar</Text>
-            <Text style={styles.totalValue}>{formatRupiah(finalPrice)}</Text>
+            <Text style={styles.totalLabel}>
+              {hasFeeEstimate ? 'Total Bayar' : 'Total Tiket'}
+            </Text>
+            <Text style={styles.totalValue}>{formatRupiah(grandTotal)}</Text>
           </View>
+
+          <Text style={styles.sumNote}>
+            {hasFeeEstimate
+              ? 'Perkiraan. Total final tampil di halaman pembayaran setelah order dibuat.'
+              : 'Biaya layanan (jika ada) ditambahkan di halaman pembayaran.'}
+          </Text>
         </View>
 
         {/* Info */}
@@ -523,6 +572,9 @@ const styles = StyleSheet.create({
   },
   totalValue: {
     fontFamily: Fonts.bold, fontSize: 20, color: Colors.burgundy,
+  },
+  sumNote: {
+    fontFamily: Fonts.regular, fontSize: 11.5, lineHeight: 16, color: '#8C7777',
   },
 
   infoBox: {
