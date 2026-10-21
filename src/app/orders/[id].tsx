@@ -709,8 +709,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  posterOverlay: {
-    ...StyleSheet.absoluteFillObject as any,
+    posterOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(91,15,24,0.55)',
   },
   posterContent: {
