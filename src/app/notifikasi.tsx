@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { Colors, Fonts, Spacing } from '@/constants/theme';
 import NotificationCard from '@/components/notifikasi/NotificationCard';
 import FilterChips, { NotificationFilter } from '@/components/notifikasi/FilterChips';
@@ -24,7 +24,6 @@ async function fetchNotifications(): Promise<AppNotification[]> {
     // 3. [...] (array langsung)
     const raw = res?.data;
     let arr: any = raw?.data?.data ?? raw?.data ?? raw ?? [];
-    if (!Array.isArray(arr)) arr = [];
     if (!Array.isArray(arr)) arr = [];
 
     // Normalize is_read: MySQL 0/1 → boolean
@@ -56,6 +55,37 @@ async function markAllReadAPI() {
     console.log('❌ mark all error:', err?.response?.status);
     throw err;
   }
+}
+
+// ─── Navigasi dari link notifikasi ─────────────────────────────
+// Backend menyimpan link versi web, misalnya:
+//   /customer/voucher?code=ORDAL10
+// Di mobile link itu diterjemahkan ke route Expo Router.
+function resolveNotificationRoute(link?: string | null): Href | null {
+  if (!link) return null;
+
+  // Notifikasi voucher → layar voucher dengan kode terisi otomatis
+  if (/^\/customer\/vouchers?(\?|$)/.test(link)) {
+    let code: string | undefined;
+
+    const match = link.match(/[?&]code=([^&#]+)/);
+    if (match) {
+      try {
+        code = decodeURIComponent(match[1]);
+      } catch {
+        code = match[1];
+      }
+    }
+
+    return {
+      pathname: '/(tabs)/voucher',
+      // `n` membuat kode yang sama tetap mengisi ulang input saat ditekan lagi.
+      params: code ? { code, n: String(Date.now()) } : {},
+    } as Href;
+  }
+
+  // Jenis notifikasi lain: belum ada tujuan di mobile (hanya ditandai dibaca).
+  return null;
 }
 
 // ─── Grouping ─────────────────────────────────────────────────
@@ -182,6 +212,11 @@ export default function NotifikasiScreen() {
 
   const handlePressCard = (n: AppNotification) => {
     if (!n.is_read) handleMarkAsRead(n.id);
+
+    // Kalau AppNotification sudah punya `link`, cast ini bisa dihapus.
+    const link = (n as { link?: string | null }).link;
+    const route = resolveNotificationRoute(link);
+    if (route) router.push(route);
   };
 
   // ─── Render: Loading ────────────────────────────────────────

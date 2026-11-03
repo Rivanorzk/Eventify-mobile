@@ -3,9 +3,9 @@ import {
   View, Text, StyleSheet, ActivityIndicator, RefreshControl, Pressable,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import ScreenContainer from '@/components/ScreenContainer';
-import RedeemBox from '@/components/voucher/RedeemBox';
+import RedeemBox, { type RedeemPrefill } from '@/components/voucher/RedeemBox';
 import VoucherCard from '@/components/voucher/VoucherCard';
 import StateTabs, { VoucherTabKey } from '@/components/voucher/StateTabs';
 import { Colors, Fonts, Spacing } from '@/constants/theme';
@@ -66,13 +66,30 @@ function sortByTab(key: VoucherTabKey) {
   };
 }
 
+const firstParam = (value?: string | string[]) =>
+  Array.isArray(value) ? value[0] : value;
+
 export default function VoucherScreen() {
   const router = useRouter();
+
+  // Param dari notifikasi: { code, n } (lihat resolveNotificationRoute).
+  const params = useLocalSearchParams<{ code?: string | string[]; n?: string | string[] }>();
+  const codeParam = firstParam(params.code);
+  const nonceParam = firstParam(params.n);
 
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<VoucherTabKey>('available');
+  const [prefill, setPrefill] = useState<RedeemPrefill | null>(null);
+
+  // Simpan kode ke state, lalu hapus param supaya kode yang sama tidak
+  // terisi lagi saat layar dibuka ulang.
+  useEffect(() => {
+    if (!codeParam) return;
+    setPrefill({ code: codeParam, nonce: nonceParam ?? String(Date.now()) });
+    router.setParams({ code: undefined, n: undefined });
+  }, [codeParam, nonceParam, router]);
 
   const loadVouchers = useCallback(async (isRefresh = false) => {
     try {
@@ -99,6 +116,7 @@ export default function VoucherScreen() {
       ...prev.filter((v) => v.id !== newVoucher.id),
     ]);
     setActiveTab('available');
+    setPrefill(null);
   };
 
   const grouped = useMemo(() => {
@@ -161,7 +179,7 @@ export default function VoucherScreen() {
 
       {/* Redeem box */}
       <View style={{ marginBottom: Spacing.lg }}>
-        <RedeemBox onRedeem={handleRedeem} />
+        <RedeemBox onRedeem={handleRedeem} prefill={prefill} />
       </View>
 
       {/* Tabs */}

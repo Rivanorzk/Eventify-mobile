@@ -1,19 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Fonts, Radius, Spacing } from '@/constants/theme';
 
+export type RedeemPrefill = { code: string; nonce: string };
+
 interface Props {
   onRedeem: (code: string) => Promise<void>;
+  prefill?: RedeemPrefill | null;
 }
 
 type Feedback = { type: 'success' | 'error'; text: string } | null;
 
-export default function RedeemBox({ onRedeem }: Props) {
+export default function RedeemBox({ onRedeem, prefill = null }: Props) {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
+  useEffect(() => {
+    if (prefill?.code) {
+      setCode(prefill.code.toUpperCase().replace(/\s/g, ''));
+      // kalau ada state pesan error/sukses, kosongkan di sini juga
+    }
+  }, [prefill]);
+  
   const handleSubmit = async () => {
     const promoCode = code.trim();
     if (!promoCode) {
