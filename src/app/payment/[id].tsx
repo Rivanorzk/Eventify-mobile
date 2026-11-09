@@ -12,7 +12,7 @@ import { Colors, Fonts, Radius, Spacing } from '@/constants/theme';
 import { formatRupiah } from '@/utils/format';
 import {
   fetchOrder, createPayment, checkStatusWithRetry,
-  isFinishUrl, isWebUrl,
+  isFinishUrl, isWebUrl, 
 } from '@/lib/payment';
 import type { Order } from '@/types/api';
 
@@ -50,6 +50,7 @@ export default function PaymentScreen() {
   const busyRef = useRef(false);
   const expiredHandledRef = useRef(false);
   const initRef = useRef(false);
+  const clockOffsetRef = useRef(0); // Selisih jam server - jam hp (ms)
 
   // ─── 1. Ambil order → buat transaksi Midtrans Snap ──────────
   const init = useCallback(async () => {
@@ -78,11 +79,18 @@ export default function PaymentScreen() {
         return;
       }
 
-      const { redirect_url } = await createPayment(id);
+      const { redirect_url, server_time, expired_at } = await createPayment(id);
       if (!redirect_url) throw new Error('Halaman pembayaran tidak tersedia');
 
+      // Selisih jam HP dengan jam server, supaya hitung mundur akurat
+      const serverMs = server_time ? new Date(server_time).getTime() : NaN;
+      clockOffsetRef.current = Number.isFinite(serverMs) ? serverMs - Date.now() : 0;
+
+
       setOrder(o);
-      const deadline = o.expired_at ? new Date(o.expired_at).getTime() : null;
+      // Pakai batas bayar terbaru dari createPayment (sama dengan Midtrans)
+      const rawDeadline = expired_at ?? o.expired_at;
+      const deadline = rawDeadline ? new Date(rawDeadline).getTime() : null;
       setExpiresAt(deadline && Number.isFinite(deadline) ? deadline : null);
       setRedirectUrl(redirect_url);
       setPhase('paying');
@@ -157,7 +165,7 @@ export default function PaymentScreen() {
   useEffect(() => {
     if (!expiresAt) return;
     const tick = () =>
-      setSecondsLeft(Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)));
+      setSecondsLeft(Math.max(0, Math.floor((expiresAt - (Date.now() + clockOffsetRef.current)) / 1000)));
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);

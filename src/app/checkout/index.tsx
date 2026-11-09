@@ -1,6 +1,7 @@
+// src/app/checkout/index.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert,
+  View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert, TextInput, Keyboard
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';

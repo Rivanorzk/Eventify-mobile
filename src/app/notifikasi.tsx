@@ -1,3 +1,4 @@
+// app/tiket/notifikasi.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, Pressable, StyleSheet, ActivityIndicator, Alert, ScrollView,
@@ -83,6 +84,9 @@ function resolveNotificationRoute(link?: string | null): Href | null {
       params: code ? { code, n: String(Date.now()) } : {},
     } as Href;
   }
+
+  const orderMatch = link.match(/^\/customer\/orders\/(\d+)/);
+  if (orderMatch) return `/orders/${orderMatch[1]}` as Href;
 
   // Jenis notifikasi lain: belum ada tujuan di mobile (hanya ditandai dibaca).
   return null;

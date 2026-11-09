@@ -13,6 +13,7 @@ interface Props {
   startTime?: string;
   price?: number;
   onPress?: () => void;
+  onBuyPress?: () => void;
 }
 
 export default function HotEventCard({
@@ -23,6 +24,7 @@ export default function HotEventCard({
   startTime,
   price,
   onPress,
+  onBuyPress,
 }: Props) {
   return (
     <Pressable
@@ -68,6 +70,10 @@ export default function HotEventCard({
             <Text style={styles.price}>{formatRupiah(price)}</Text>
           </View>
           <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              onBuyPress?.();
+            }}
             style={({ pressed }) => [styles.cta, pressed && { opacity: 0.85 }]}
           >
             <Text style={styles.ctaText}>Beli Tiket</Text>

@@ -10,6 +10,7 @@ export default function TabsLayout() {
         headerShown: false,
         sceneStyle: { backgroundColor: Colors.surface },
       }}
+      
     >
       <Tabs.Screen name="index" />
       <Tabs.Screen name="tiket" />

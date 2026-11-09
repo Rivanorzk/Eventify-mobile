@@ -1,13 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+// Riwayat.tsx
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  Pressable
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter, useFocusEffect, type Href } from 'expo-router';
 import ScreenContainer from '@/components/ScreenContainer';
 import SearchBar from '@/components/riwayat/SearchBar';
 import FilterPills, { FilterKey } from '@/components/riwayat/FilterPills';
@@ -22,8 +25,41 @@ async function fetchMyOrders(): Promise<Order[]> {
   return res.data.data ?? [];
 }
 
+// Helper tanggal
+function parseTime(v?: string | null): number | null {
+  if (!v) return null;
+  // "2026-11-03 14:57:00" (format MySQL) → "2026-11-03T14:57:00"
+  const iso = v.includes(' ') && !v.includes('T') ? v.replace(' ', 'T') : v;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * Pesanan 'pending' yang batas bayarnya sudah lewat dianggap 'expired',
+ * walaupun backend belum sempat mengubah statusnya.
+ */
+function withEffectiveStatus(order: Order, now: number): Order {
+  if (order.status?.toLowerCase() !== 'pending') return order;
+  const deadline = parseTime(order.payment_deadline ?? order.expired_at);
+  if (deadline !== null && deadline <= now) {
+    return { ...order, status: 'expired' };
+  }
+  return order;
+}
+
+const isCancelledLike = (o: Order) => {
+  const s = o.status?.toLowerCase();
+  return s === 'cancelled' || s === 'expired';
+};
+
+function yearOf(o: Order): number | null {
+  // Pakai tanggal konser; kalau kosong, cadangannya tanggal pesanan dibuat
+  const t = parseTime(o.event_date) ?? parseTime(o.created_at);
+  return t === null ? null : new Date(t).getFullYear();
+}
+
 // ─── Variant mapping ──────────────────────────────────────────
-function variantOf(order: Order): 'pending' | 'completed' | 'archive' {
+function variantOf(order: Order): 'pending' | 'completed' | 'archive' | 'cancelled' {
   const s = order.status?.toLowerCase();
   if (s === 'pending') return 'pending';
   if (s === 'paid') {
@@ -31,17 +67,22 @@ function variantOf(order: Order): 'pending' | 'completed' | 'archive' {
     if (ev && ev < Date.now() - 24 * 3600 * 1000) return 'archive';
     return 'completed';
   }
-  return 'archive'; // cancelled/expired masuk arsip juga
+  return 'cancelled'; // cancelled/expired masuk arsip juga
 }
+
+type YearFilter = number | 'all';
 
 export default function RiwayatScreen() {
   const router = useRouter();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [year, setYear] = useState<YearFilter>('all');
+  const [yearModal, setYearModal] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   const loadOrders = useCallback(async (isRefresh = false) => {
     try {
@@ -57,29 +98,56 @@ export default function RiwayatScreen() {
     }
   }, []);
 
+  const hasLoaded = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadOrders(hasLoaded.current);  // pertama: layar loading penuh; berikutnya: refresh halus
+      hasLoaded.current = true;
+    }, [loadOrders])
+  );
+
+  // Detak tiap 15 detik supaya pesanan pindah tab otomatis saat batas bayar lewat
   useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
+    const t = setInterval(() => setNow(Date.now()), 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Status efektif (pending yang lewat batas → expired)
+  const normalized = useMemo(
+    () => orders.map((o) => withEffectiveStatus(o, now)),
+    [orders, now]
+  );
+
+  // Daftar tahun dinamis: dari data pesanan + tahun berjalan
+  const years = useMemo(() => {
+    const set = new Set<number>();
+    normalized.forEach((o) => {
+      const y = yearOf(o);
+      if (y) set.add(y);
+    });
+    return Array.from(set).sort((a, b) => b - a);
+  }, [normalized]);
+
+  const yearOrders = useMemo(
+    () => (year === 'all' ? normalized : normalized.filter((o) => yearOf(o) === year)),
+    [normalized, year]
+  );
 
   const counts = useMemo(() => {
-    const pending = orders.filter((o) => variantOf(o) === 'pending').length;
-    const paid = orders.filter((o) => variantOf(o) === 'completed').length;
-    const cancelled = orders.filter(
-      (o) => o.status?.toLowerCase() === 'cancelled'
-    ).length;
-    return { all: orders.length, pending, paid, cancelled };
-  }, [orders]);
+    const pending = yearOrders.filter((o) => variantOf(o) === 'pending').length;
+    const paid = yearOrders.filter((o) => variantOf(o) === 'completed').length;
+    const cancelled = yearOrders.filter(isCancelledLike).length;
+    return { all: yearOrders.length, pending, paid, cancelled };
+  }, [yearOrders]);
 
   const visibleOrders = useMemo(() => {
-    let list = orders;
+    let list = yearOrders;
 
-    // Filter by tab
     if (filter === 'pending') list = list.filter((o) => variantOf(o) === 'pending');
     else if (filter === 'paid') list = list.filter((o) => variantOf(o) === 'completed');
-    else if (filter === 'cancelled')
-      list = list.filter((o) => o.status?.toLowerCase() === 'cancelled');
+    else if (filter === 'cancelled') list = list.filter(isCancelledLike);
 
-    // Search
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -90,7 +158,7 @@ export default function RiwayatScreen() {
       );
     }
     return list;
-  }, [orders, filter, search]);
+  }, [yearOrders, filter, search]);
 
   if (loading) {
     return (
@@ -116,7 +184,6 @@ export default function RiwayatScreen() {
         ),
       }}
     >
-      {/* Page header */}
       <View style={styles.header}>
         <Text style={styles.eyebrow}>ARSIP & TIKET</Text>
         <Text style={styles.title}>Riwayat Pemesanan</Text>
@@ -125,26 +192,28 @@ export default function RiwayatScreen() {
         </Text>
       </View>
 
-      {/* Search & year */}
       <View style={styles.section}>
-        <SearchBar value={search} onChangeText={setSearch} year="2025" />
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          year={year === 'all' ? 'Semua' : String(year)}
+          onYearPress={() => setYearModal(true)}
+        />
       </View>
 
-      {/* Filter pills */}
       <View style={styles.section}>
         <FilterPills
           filters={[
             { key: 'all', label: 'Semua' },
             { key: 'pending', label: 'Menunggu Pembayaran', count: counts.pending },
             { key: 'paid', label: 'Selesai', count: counts.paid },
-            { key: 'cancelled', label: 'Dibatalkan', count: counts.cancelled },
+            { key: 'cancelled', label: 'Dibatalkan / Kedaluwarsa', count: counts.cancelled },
           ]}
           active={filter}
           onChange={setFilter}
         />
       </View>
 
-      {/* Orders list */}
       <View style={{ gap: 16 }}>
         {visibleOrders.length === 0 && (
           <View style={styles.empty}>
@@ -165,14 +234,9 @@ export default function RiwayatScreen() {
               variant={v}
               onPress={() => router.push(`/orders/${order.id}` as Href)}
               onPrimaryAction={() => {
-                if (v === 'pending') {
-                  // redirect ke pembayaran
-                  router.push(`/payment/${order.id}` as Href);
-                } else if (v === 'completed') {
-                  router.push(`/(tabs)/tiket` as Href);
-                } else {
-                  router.push(`/orders/${order.id}` as Href);
-                }
+                if (v === 'pending') router.push(`/payment/${order.id}` as Href);
+                else if (v === 'completed') router.push(`/(tabs)/tiket` as Href);
+                else router.push(`/orders/${order.id}` as Href);
               }}
               onSecondaryAction={() => router.push(`/orders/${order.id}` as Href)}
             />
@@ -180,13 +244,48 @@ export default function RiwayatScreen() {
         })}
       </View>
 
-      {/* Footer notice */}
       <View style={styles.footerNote}>
         <MaterialIcons name="verified-user" size={15} color={Colors.secondary} />
         <Text style={styles.footerText}>
           Semua transaksi & e-ticket dilindungi enkripsi Eventify SafePass™
         </Text>
       </View>
+
+      {/* Pemilih tahun */}
+      <Modal
+        visible={yearModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setYearModal(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setYearModal(false)}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Pilih Tahun</Text>
+            {([...years, 'all'] as YearFilter[]).map((y) => {
+              const active = y === year;
+              return (
+                <Pressable
+                  key={String(y)}
+                  onPress={() => {
+                    setYear(y);
+                    setYearModal(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.modalItem,
+                    active && styles.modalItemActive,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.modalItemText, active && styles.modalItemTextActive]}>
+                    {y === 'all' ? 'Semua Tahun' : y}
+                  </Text>
+                  {active && <MaterialIcons name="check" size={18} color={Colors.primaryContainer} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -264,5 +363,45 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
     textAlign: 'center',
     flexShrink: 1,
+  },
+    modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 16,
+    gap: 4,
+  },
+  modalTitle: {
+    fontFamily: Fonts.bold,
+    fontSize: 16,
+    color: Colors.onSurface,
+    marginBottom: 8,
+    paddingHorizontal: 8,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  modalItemActive: { backgroundColor: 'rgba(91,15,24,0.08)' },
+  modalItemText: {
+    fontFamily: Fonts.medium,
+    fontSize: 14,
+    color: Colors.onSurface,
+  },
+  modalItemTextActive: {
+    fontFamily: Fonts.bold,
+    color: Colors.primaryContainer,
   },
 });

@@ -42,7 +42,7 @@ export default function RedeemBox({ onRedeem, prefill = null }: Props) {
         text:
           err?.response?.data?.message ||
           err?.message ||
-          'Kode voucher tidak valid atau sudah kadaluarsa.',
+          'Kode voucher tidak valid atau sudah kedaluwarsa.',
       });
     } finally {
       setLoading(false);

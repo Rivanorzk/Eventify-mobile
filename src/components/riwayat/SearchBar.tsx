@@ -10,7 +10,12 @@ interface Props {
   onYearPress?: () => void;
 }
 
-export default function SearchBar({ value, onChangeText, year = '2025', onYearPress }: Props) {
+export default function SearchBar({ 
+  value, 
+  onChangeText, 
+  year = String(new Date().getFullYear()), 
+  onYearPress,
+}: Props) {
   return (
     <View style={styles.row}>
       <View style={styles.searchWrap}>

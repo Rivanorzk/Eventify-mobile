@@ -1,3 +1,4 @@
+// app/orders/[id].tsx
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, Image, Pressable, StyleSheet, ActivityIndicator,
@@ -54,13 +55,14 @@ function formatTimeRange(start?: string | null, end?: string | null): string {
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
-  bank_transfer: 'Transfer Bank',
-  gopay: 'GoPay',
-  shopeepay: 'ShopeePay',
-  qris: 'QRIS',
-  credit_card: 'Kartu Kredit',
-  cstore: 'Convenience Store',
-  echannel: 'Mandiri Bill',
+    bank_transfer: 'Transfer Bank (VA)',
+    echannel: 'Mandiri Bill',
+    gopay: 'GoPay',
+    shopeepay: 'ShopeePay',
+    qris: 'QRIS',
+    credit_card: 'Kartu Kredit',
+    cstore: 'Gerai Retail',
+    Dana: 'Dana',
 };
 
 function paymentLabel(type?: string | null): string {
@@ -150,7 +152,11 @@ export default function OrderDetailScreen() {
     );
   }
 
-  const meta = statusMeta(order.status);
+  const deadlineMs = order.expired_at ? new Date(order.expired_at).getTime() : null;
+  const isOverdue = order.status === 'pending' && deadlineMs !== null && deadlineMs <= Date.now();
+  const effectiveStatus = isOverdue ? 'expired' : order.status;
+
+  const meta = statusMeta(effectiveStatus);
   const lines = order.order_details ?? [];
   const flatTickets = order.tickets ?? lines.flatMap((l) => l.tickets ?? []);
   const payment = order.payment ?? null;
@@ -280,7 +286,8 @@ export default function OrderDetailScreen() {
               </View>
             )}
 
-            {/* CTA Lihat E-Ticket */}
+            {/* CTA sesuai status */}
+            {effectiveStatus === 'paid' && (
             <Pressable
               onPress={() => router.push(`/(tabs)/tiket` as Href)}
               style={({ pressed }) => [styles.cta, pressed && { opacity: 0.9 }]}
@@ -288,6 +295,16 @@ export default function OrderDetailScreen() {
               <MaterialIcons name="qr-code-2" size={20} color="#fff" />
               <Text style={styles.ctaText}>Lihat E-Ticket & Barcode</Text>
             </Pressable>
+            )}
+            {effectiveStatus === 'pending' && (
+            <Pressable
+              onPress={() => router.push(`/payment/${order.id}` as Href)}
+              style={({ pressed }) => [styles.cta, pressed && { opacity: 0.9 }]}
+            >
+              <MaterialIcons name="payments" size={20} color="#fff" />
+              <Text style={styles.ctaText}>Bayar Sekarang</Text>
+            </Pressable>
+            )}
           </View>
         </View>
 

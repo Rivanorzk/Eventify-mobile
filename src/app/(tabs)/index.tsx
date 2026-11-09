@@ -234,7 +234,9 @@ export default function DashboardScreen() {
             startTime={heroEvent.start_time}
             location={heroEvent.location}
             price={heroEvent.price}
-            onPress={() => router.push(`/event/${heroEvent.id}` as Href)}
+            onPress={() =>
+              router.push(`/event/${heroEvent.id}?tab=tickets` as Href)
+            }
           />
         </View>
       )}
@@ -285,6 +287,9 @@ export default function DashboardScreen() {
               startTime={event.start_time}
               price={event.price}
               onPress={() => router.push(`/event/${event.id}` as Href)}
+              onBuyPress={() =>
+                router.push(`/event/${event.id}?tab=tickets` as Href)
+              }
             />
           ))}
         </ScrollView>

@@ -28,13 +28,19 @@ type BottomNavProps = {
     index: number;
     routes: Array<{ key: string; name: string }>;
   };
-  navigation: {
+  // API Baru (SDK 58)
+  emitter?: {
+    emit: (options: any) => any;
+  };
+  navigateToTab?: (routeKey: string) => void;
+  // API Lama (SDK 57)
+  navigation?: {
     navigate: (name: string) => void;
-    emit: (event: any) => { defaultPrevented: boolean };
+    emit: (event: any) => any;
   };
 };
 
-export default function BottomNav({ state, navigation }: BottomNavProps) {
+export default function BottomNav({ state, emitter, navigateToTab, navigation }: BottomNavProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -55,19 +61,28 @@ export default function BottomNav({ state, navigation }: BottomNavProps) {
             : 'rgba(255,255,255,0.55)'; // putih pudar
 
           const onPress = () => {
-            const event = navigation.emit({
+            const event = emitter?.emit?.({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            }) ??
+            navigation?.emit?.({
               type: 'tabPress',
               target: route.key,
               canPreventDefault: true,
             });
 
-            if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
+            if (!isFocused && !event?.defaultPrevented) {
+              if (navigateToTab) {
+                navigateToTab(route.key);
+              } else {
+                navigation?.navigate(route.name);
+              }
             }
           };
 
           const onLongPress = () => {
-            navigation.emit({
+            (emitter ?? navigation)?.emit?.({
               type: 'tabLongPress',
               target: route.key,
             });

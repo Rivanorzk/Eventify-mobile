@@ -1,6 +1,7 @@
+// src/app/tiket/[id].tsx
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, Image, Pressable, StyleSheet, ActivityIndicator,
+  View, Text, Image, Pressable, StyleSheet, ActivityIndicator, ScrollView
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -16,6 +17,22 @@ async function fetchTicket(id: string): Promise<TicketDetail> {
   return res.data.data;
 }
 
+const PAYMENT_LABELS: Record<string, string> = {
+    bank_transfer: 'Transfer Bank (VA)',
+    echannel: 'Mandiri Bill',
+    gopay: 'GoPay',
+    shopeepay: 'ShopeePay',
+    qris: 'QRIS',
+    credit_card: 'Kartu Kredit',
+    cstore: 'Gerai Retail',
+    Dana: 'Dana',
+};
+
+function paymentLabel(type?: string | null): string {
+  if (!type) return '-';
+  return PAYMENT_LABELS[type] ?? type.replace(/_/g, ' ').toUpperCase();
+}
+
 export default function TicketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -27,6 +44,8 @@ export default function TicketDetailScreen() {
       try {
         const data = await fetchTicket(id);
         setTicket(data);
+      } catch(err) {
+        console.log('❌ ticket fetch:', err) // ← BARU: error tercatat, tidak diam-diam
       } finally {
         setLoading(false);
       }
@@ -41,19 +60,29 @@ export default function TicketDetailScreen() {
     );
   }
 
-  if (!ticket) return null;
+  if (!ticket) {
+    return (
+      <SafeAreaView style={styles.center} edges={['top']}>
+        <Text style={styles.qrHint}>Tiket tidak dapat dimuat.</Text>
+        <Pressable onPress={() => router.back()} style={{ marginTop: 12 }}>
+          <Text style={styles.headerTitle}>Kembali</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
 
-  const statusLabel =
-    ticket.status === 'active'
-      ? 'TIKET AKTIF • SIAP DIGUNAKAN'
-      : ticket.status === 'used'
-      ? 'TIKET SUDAH DIGUNAKAN'
-      : ticket.status === 'expired'
-      ? 'TIKET KEDALUWARSA'
-      : 'TIKET DIBATALKAN';
+  const STATUS_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
+    active:    { label: 'TIKET AKTIF • SIAP DIGUNAKAN', bg: '#FDF3D8', fg: '#B4841F' },
+    used:      { label: 'TIKET SUDAH DIGUNAKAN',        bg: '#E6F4EA', fg: '#1E7A4C' },
+    expired:   { label: 'TIKET KEDALUWARSA',            bg: '#EAE7E7', fg: '#5F5A5A' },
+    cancelled: { label: 'TIKET DIBATALKAN',             bg: '#FDECEA', fg: '#B3261E' },
+  };
+  const st = STATUS_STYLE[ticket.status] ?? STATUS_STYLE.cancelled;
+
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
+      <ScrollView>
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerBtn}>
@@ -66,9 +95,9 @@ export default function TicketDetailScreen() {
       <View style={styles.body}>
         {/* Title */}
         <Text style={styles.title}>E-Ticket Digital Pass</Text>
-        <View style={styles.statusBadge}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>{statusLabel}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: st.bg }]}>
+          <View style={[styles.statusDot, { backgroundColor: st.fg }]} />
+          <Text style={[styles.statusText, { color: st.fg }]}>{st.label}</Text>
         </View>
 
         {/* Hero ticket */}
@@ -110,7 +139,7 @@ export default function TicketDetailScreen() {
         </View>
 
         {/* QR */}
-        <View style={styles.qrCard}>
+        <View style={[styles.qrCard, ticket.status !== 'active' && { opacity: 0.35 }]}>
           <View style={styles.qrBox}>
             {/* Isi QR = ticket_code, bukan ticket.qr_code (data-URL PNG) */}
             <QRCode
@@ -138,7 +167,7 @@ export default function TicketDetailScreen() {
           <View style={styles.invoiceRow}>
             <Text style={styles.invoiceLabel}>Metode Bayar</Text>
             <Text style={styles.invoiceValue}>
-              {ticket.payment_type || '-'}
+              {paymentLabel(ticket.payment_type)}
             </Text>
           </View>
 
@@ -172,6 +201,7 @@ export default function TicketDetailScreen() {
 
         <View style={{ height: 40 }} />
       </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }

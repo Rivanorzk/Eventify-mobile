@@ -36,9 +36,9 @@ export default function RedeemPromoCard({ onSuccess, onError }: Props) {
     } else {
       setFeedback({
         type: 'error',
-        msg: 'Kode voucher tidak valid atau sudah kadaluarsa.',
+        msg: 'Kode voucher tidak valid atau sudah kedaluwarsa.',
       });
-      onError('Kode voucher tidak valid atau kadaluarsa.');
+      onError('Kode voucher tidak valid atau kedaluwarsa.');
     }
   };
 

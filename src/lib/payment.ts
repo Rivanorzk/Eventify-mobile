@@ -10,6 +10,8 @@ export type OrderStatus = 'pending' | 'paid' | 'expired' | 'cancelled' | string;
 
 export interface PaymentSession {
   redirect_url: string;
+  expired_at?: string;   // batas bayar terbaru (sama dengan Midtrans)
+  server_time?: string;  // jam server, untuk mengoreksi jam HP
 }
 
 // Backend (paymentService.createTransaction) mengarahkan Midtrans ke

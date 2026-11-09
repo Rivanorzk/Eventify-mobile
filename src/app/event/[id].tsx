@@ -1,6 +1,7 @@
+// src/app/event/[id].tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert,
+  View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -18,7 +19,10 @@ async function fetchEvent(id: string): Promise<EventDetail> {
 }
 
 export default function EventDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: requestedTab } = useLocalSearchParams<{
+    id: string;
+    tab?: string;
+  }>();
   const router = useRouter();
 
   const [event, setEvent] = useState<EventDetail | null>(null);
@@ -26,6 +30,10 @@ export default function EventDetailScreen() {
   const [tab, setTab] = useState<'details' | 'tickets'>('details');
   const [selectedTicket, setSelectedTicket] = useState<TicketCategory | null>(null);
   const [qty, setQty] = useState(1);
+
+  useEffect(() => {
+    setTab(requestedTab === 'tickets' ? 'tickets' : 'details');
+  }, [requestedTab]);
 
   useEffect(() => {
     (async () => {
@@ -59,6 +67,9 @@ export default function EventDetailScreen() {
   return (
     <View style={styles.root}>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+        >
         {/* Back button + hero poster */}
         <View style={styles.heroWrap}>
           {event.poster ? (
@@ -222,6 +233,7 @@ export default function EventDetailScreen() {
 
           <View style={{ height: 100 }} />
         </View>
+        </ScrollView>
       </SafeAreaView>
 
       {/* Sticky footer */}
