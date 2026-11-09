@@ -27,6 +27,30 @@ const BASE_CATEGORY: CategoryChip = {
   icon: 'grid-view',
 };
 
+const HIDDEN_EVENT_STATUS = ['expired', 'cancelled', 'canceled', 'finished', 'completed'];
+
+function isEventExpired(e: EventItem): boolean {
+  const raw = e as unknown as Record<string, unknown>;
+
+  const status = typeof raw.status === 'string' ? raw.status.toLowerCase() : '';
+  if (HIDDEN_EVENT_STATUS.includes(status)) return true;
+
+  if (!e.event_date) return false;
+  const day = e.event_date.slice(0, 10);
+
+  const start = typeof e.start_time === 'string' ? e.start_time : null;
+  const end = typeof raw.end_time === 'string' ? raw.end_time : null;
+
+  const norm = (t: string) => (t.length === 5 ? `${t}:00` : t.slice(0, 8));
+  let endAt = new Date(`${day}T${norm(end ?? start ?? '23:59:59')}`);
+  if (Number.isNaN(endAt.getTime())) return false;
+
+  if (start && end && end < start) {
+    endAt = new Date(endAt.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return endAt.getTime() < Date.now();
+}
+
 // ─── API helpers ───────────────────────────────────────────────
 async function fetchDashboard() {
   const res = await api.get('/dashboard/customer');
@@ -106,7 +130,13 @@ export default function DashboardScreen() {
           icon: 'music-note' as const,
         })),
       ]);
-      setHotEvents(latestEvents.slice(0, 6));
+      setHotEvents(
+        latestEvents.filter((e) => !isEventExpired(e)).slice(0, 6)
+      );
+      setUpcoming(
+        dateEvents.filter((e) => !isEventExpired(e)).slice(0, 3)
+      );
+      setMyTickets(ticketsRes);
 
       const todayStr = new Date().toISOString().slice(0, 10);
       setUpcoming(

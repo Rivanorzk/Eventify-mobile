@@ -28,8 +28,8 @@ export default function EventDetailScreen() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'details' | 'tickets'>('details');
-  const [selectedTicket, setSelectedTicket] = useState<TicketCategory | null>(null);
-  const [qty, setQty] = useState(1);
+  // Keranjang: { id kategori tiket -> jumlah }
+  const [cart, setCart] = useState<Record<number, number>>({});
 
   useEffect(() => {
     setTab(requestedTab === 'tickets' ? 'tickets' : 'details');
@@ -40,7 +40,6 @@ export default function EventDetailScreen() {
       try {
         const data = await fetchEvent(id);
         setEvent(data);
-        setSelectedTicket(data.ticket_categories?.[0] || null);
       } catch {
         Alert.alert('Error', 'Gagal memuat event');
       } finally {
@@ -49,10 +48,53 @@ export default function EventDetailScreen() {
     })();
   }, [id]);
 
-  const total = useMemo(() => {
-    if (!selectedTicket) return 0;
-    return Number(selectedTicket.price) * qty;
-  }, [selectedTicket, qty]);
+  const cartItems = useMemo(
+    () =>
+      (event?.ticket_categories ?? [])
+        .filter((c) => (cart[c.id] ?? 0) > 0)
+        .map((c) => ({ category: c, quantity: cart[c.id] })),
+    [event, cart]
+  );
+
+  const total = useMemo(
+    () =>
+      cartItems.reduce(
+        (sum, i) => sum + Number(i.category.price) * i.quantity,
+        0
+      ),
+    [cartItems]
+  );
+
+  const totalQty = useMemo(
+    () => cartItems.reduce((sum, i) => sum + i.quantity, 0),
+    [cartItems]
+  );
+
+  const changeQty = (cat: TicketCategory, delta: number) => {
+    setCart((prev) => {
+      const next = Math.min(
+        cat.remaining_stock,
+        Math.max(0, (prev[cat.id] ?? 0) + delta)
+      );
+      const copy = { ...prev };
+      if (next === 0) delete copy[cat.id];
+      else copy[cat.id] = next;
+      return copy;
+    });
+  };
+
+  const handleCheckout = () => {
+    if (!event || cartItems.length === 0) return;
+    const items = cartItems.map((i) => ({
+      ticket_id: i.category.id,
+      quantity: i.quantity,
+    }));
+    router.push(
+      `/checkout?event_id=${event.id}&items=${encodeURIComponent(
+        JSON.stringify(items)
+      )}` as Href
+    );
+  };
 
   if (loading) {
     return (
@@ -67,193 +109,185 @@ export default function EventDetailScreen() {
   return (
     <View style={styles.root}>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        <ScrollView 
-          showsVerticalScrollIndicator={false}
-        >
-        {/* Back button + hero poster */}
-        <View style={styles.heroWrap}>
-          {event.poster ? (
-            <Image source={{ uri: event.poster }} style={styles.hero} />
-          ) : (
-            <View style={[styles.hero, { backgroundColor: Colors.burgundy }]} />
-          )}
-          <LinearGradient
-            colors={['transparent', 'rgba(255,255,255,0.5)', '#fff']}
-            style={StyleSheet.absoluteFill}
-          />
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {/* Back button + hero poster */}
+          <View style={styles.heroWrap}>
+            {event.poster ? (
+              <Image source={{ uri: event.poster }} style={styles.hero} />
+            ) : (
+              <View style={[styles.hero, { backgroundColor: Colors.burgundy }]} />
+            )}
+            <LinearGradient
+              colors={['transparent', 'rgba(255,255,255,0.5)', '#fff']}
+              style={StyleSheet.absoluteFill}
+            />
 
-          <Pressable
-            onPress={() => router.back()}
-            style={styles.backBtn}
-          >
-            <MaterialIcons name="arrow-back-ios-new" size={20} color="#fff" />
-          </Pressable>
-
-          {/* Live badges */}
-          <View style={styles.heroBadges}>
-            <View style={styles.heroBadgeDark}>
-              <View style={styles.pulseDot} />
-              <Text style={styles.heroBadgeText}>TIKET TERBATAS</Text>
-            </View>
-            <View style={styles.heroBadgeLight}>
-              <MaterialIcons name="local-activity" size={14} color={Colors.wine} />
-              <Text style={[styles.heroBadgeText, { color: Colors.espresso }]}>
-                EVENT PASS
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Title & meta */}
-        <View style={styles.body}>
-          <Text style={styles.tourText}>
-            {event.category_name?.toUpperCase() || 'MUSIC EVENT'}
-          </Text>
-          <Text style={styles.title}>{event.title}</Text>
-          <Text style={styles.desc} numberOfLines={3}>
-            {event.description}
-          </Text>
-
-          {/* Quick specs */}
-          <View style={styles.specRow}>
-            <MaterialIcons name="calendar-month" size={18} color={Colors.burgundy} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.specLabel}>Waktu Pelaksanaan</Text>
-              <Text style={styles.specValue}>
-                {formatEventDate(event.event_date, event.start_time)}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.specRow}>
-            <MaterialIcons name="pin-drop" size={18} color={Colors.wine} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.specLabel}>Lokasi Venue</Text>
-              <Text style={styles.specValue}>{event.location}</Text>
-            </View>
-          </View>
-
-          {/* Tabs */}
-          <View style={styles.tabs}>
-            <Pressable
-              onPress={() => setTab('details')}
-              style={[styles.tab, tab === 'details' && styles.tabActive]}
-            >
-              <Text style={[styles.tabText, tab === 'details' && styles.tabTextActive]}>
-                Detail
-              </Text>
+            <Pressable onPress={() => router.back()} style={styles.backBtn}>
+              <MaterialIcons name="arrow-back-ios-new" size={20} color="#fff" />
             </Pressable>
-            <Pressable
-              onPress={() => setTab('tickets')}
-              style={[styles.tab, tab === 'tickets' && styles.tabActive]}
-            >
-              <Text style={[styles.tabText, tab === 'tickets' && styles.tabTextActive]}>
-                Tiket
-              </Text>
-            </Pressable>
-          </View>
 
-          {tab === 'details' ? (
-            <View style={{ marginTop: 16, gap: 16 }}>
-              <View>
-                <Text style={styles.sectionTitle}>Tentang Event</Text>
-                <Text style={styles.bodyText}>{event.description}</Text>
+            {/* Live badges */}
+            <View style={styles.heroBadges}>
+              <View style={styles.heroBadgeDark}>
+                <View style={styles.pulseDot} />
+                <Text style={styles.heroBadgeText}>TIKET TERBATAS</Text>
               </View>
-
-              <FAQItem
-                icon="verified-user"
-                title="Batas Usia Pengunjung"
-                body="Festival ini dikhususkan untuk penonton berusia 18 tahun ke atas (18+). Identitas resmi wajib ditunjukkan saat penukaran gelang."
-              />
-              <FAQItem
-                icon="qr-code-scanner"
-                title="Mekanisme Barcode & Wristband"
-                body="E-tiket dikirim ke aplikasi H-3 acara. Tunjukkan barcode di Ticket Booth untuk ditukar gelang RFID."
-              />
-              <FAQItem
-                icon="block"
-                title="Barang yang Dilarang Masuk"
-                body="Dilarang membawa senjata tajam, alkohol dari luar, kamera profesional, kembang api, dan drone."
-              />
+              <View style={styles.heroBadgeLight}>
+                <MaterialIcons name="local-activity" size={14} color={Colors.wine} />
+                <Text style={[styles.heroBadgeText, { color: Colors.espresso }]}>
+                  EVENT PASS
+                </Text>
+              </View>
             </View>
-          ) : (
-            <View style={{ marginTop: 16, gap: 12 }}>
-              {event.ticket_categories?.map((cat) => {
-                const soldOut = cat.remaining_stock === 0;
-                const active = selectedTicket?.id === cat.id;
-                return (
-                  <Pressable
-                    key={cat.id}
-                    disabled={soldOut}
-                    onPress={() => setSelectedTicket(cat)}
-                    style={[
-                      styles.ticketCat,
-                      active && styles.ticketCatActive,
-                      soldOut && { opacity: 0.5 },
-                    ]}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.ticketCatName}>{cat.category_name}</Text>
-                      <Text style={styles.ticketCatStock}>
-                        Sisa {cat.remaining_stock} tiket
-                      </Text>
-                    </View>
-                    <Text style={styles.ticketCatPrice}>
-                      {formatRupiah(cat.price)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+          </View>
 
-              {/* Qty */}
-              {selectedTicket && (
-                <View style={styles.qtyRow}>
-                  <Text style={styles.specLabel}>Jumlah</Text>
-                  <View style={styles.qtyBtns}>
-                    <Pressable
-                      onPress={() => setQty(Math.max(1, qty - 1))}
-                      style={styles.qtyBtn}
-                    >
-                      <MaterialIcons name="remove" size={18} color={Colors.espresso} />
-                    </Pressable>
-                    <Text style={styles.qtyText}>{qty}</Text>
-                    <Pressable
-                      onPress={() =>
-                        setQty(Math.min(selectedTicket.remaining_stock, qty + 1))
-                      }
-                      style={[styles.qtyBtn, { backgroundColor: Colors.burgundy }]}
-                    >
-                      <MaterialIcons name="add" size={18} color="#fff" />
-                    </Pressable>
-                  </View>
+          {/* Title & meta */}
+          <View style={styles.body}>
+            <Text style={styles.tourText}>
+              {event.category_name?.toUpperCase() || 'MUSIC EVENT'}
+            </Text>
+            <Text style={styles.title}>{event.title}</Text>
+            <Text style={styles.desc} numberOfLines={3}>
+              {event.description}
+            </Text>
+
+            {/* Quick specs */}
+            <View style={styles.specRow}>
+              <MaterialIcons name="calendar-month" size={18} color={Colors.burgundy} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Waktu Pelaksanaan</Text>
+                <Text style={styles.specValue}>
+                  {formatEventDate(event.event_date, event.start_time)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.specRow}>
+              <MaterialIcons name="pin-drop" size={18} color={Colors.wine} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Lokasi Venue</Text>
+                <Text style={styles.specValue}>{event.location}</Text>
+              </View>
+            </View>
+
+            {/* Tabs */}
+            <View style={styles.tabs}>
+              <Pressable
+                onPress={() => setTab('details')}
+                style={[styles.tab, tab === 'details' && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, tab === 'details' && styles.tabTextActive]}>
+                  Detail
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setTab('tickets')}
+                style={[styles.tab, tab === 'tickets' && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, tab === 'tickets' && styles.tabTextActive]}>
+                  Tiket{totalQty > 0 ? ` (${totalQty})` : ''}
+                </Text>
+              </Pressable>
+            </View>
+
+            {tab === 'details' ? (
+              <View style={{ marginTop: 16, gap: 16 }}>
+                <View>
+                  <Text style={styles.sectionTitle}>Tentang Event</Text>
+                  <Text style={styles.bodyText}>{event.description}</Text>
                 </View>
-              )}
-            </View>
-          )}
 
-          <View style={{ height: 100 }} />
-        </View>
+                <FAQItem
+                  icon="verified-user"
+                  title="Batas Usia Pengunjung"
+                  body="Festival ini dikhususkan untuk penonton berusia 18 tahun ke atas (18+). Identitas resmi wajib ditunjukkan saat penukaran gelang."
+                />
+                <FAQItem
+                  icon="qr-code-scanner"
+                  title="Mekanisme Barcode & Wristband"
+                  body="E-tiket dikirim ke aplikasi H-3 acara. Tunjukkan barcode di Ticket Booth untuk ditukar gelang RFID."
+                />
+                <FAQItem
+                  icon="block"
+                  title="Barang yang Dilarang Masuk"
+                  body="Dilarang membawa senjata tajam, alkohol dari luar, kamera profesional, kembang api, dan drone."
+                />
+              </View>
+            ) : (
+              <View style={{ marginTop: 16, gap: 12 }}>
+                <Text style={styles.hintText}>
+                  Kamu bisa memilih lebih dari satu kategori tiket dalam satu order.
+                </Text>
+
+                {event.ticket_categories?.map((cat) => {
+                  const soldOut = cat.remaining_stock === 0;
+                  const count = cart[cat.id] ?? 0;
+                  const active = count > 0;
+                  const maxed = count >= cat.remaining_stock;
+                  return (
+                    <View
+                      key={cat.id}
+                      style={[
+                        styles.ticketCat,
+                        active && styles.ticketCatActive,
+                        soldOut && { opacity: 0.5 },
+                      ]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.ticketCatName}>{cat.category_name}</Text>
+                        <Text style={styles.ticketCatStock}>
+                          {soldOut ? 'Habis' : `Sisa ${cat.remaining_stock} tiket`}
+                        </Text>
+                        <Text style={[styles.ticketCatPrice, { marginTop: 6 }]}>
+                          {formatRupiah(cat.price)}
+                        </Text>
+                      </View>
+
+                      <View style={styles.qtyBtns}>
+                        <Pressable
+                          disabled={soldOut || count === 0}
+                          onPress={() => changeQty(cat, -1)}
+                          style={[styles.qtyBtn, count === 0 && { opacity: 0.4 }]}
+                        >
+                          <MaterialIcons name="remove" size={18} color={Colors.espresso} />
+                        </Pressable>
+                        <Text style={styles.qtyText}>{count}</Text>
+                        <Pressable
+                          disabled={soldOut || maxed}
+                          onPress={() => changeQty(cat, 1)}
+                          style={[
+                            styles.qtyBtn,
+                            { backgroundColor: Colors.burgundy },
+                            (soldOut || maxed) && { opacity: 0.4 },
+                          ]}
+                        >
+                          <MaterialIcons name="add" size={18} color="#fff" />
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            <View style={{ height: 120 }} />
+          </View>
         </ScrollView>
       </SafeAreaView>
 
       {/* Sticky footer */}
-      {tab === 'tickets' && selectedTicket && (
+      {tab === 'tickets' && totalQty > 0 && (
         <View style={styles.footer}>
           <View style={{ flex: 1 }}>
             <Text style={styles.footerLabel}>Total Pembayaran</Text>
             <Text style={styles.footerPrice}>{formatRupiah(total)}</Text>
-            <Text style={styles.footerSub}>
-              {qty}x {selectedTicket.category_name}
+            <Text style={styles.footerSub} numberOfLines={2}>
+              {cartItems
+                .map((i) => `${i.quantity}x ${i.category.category_name}`)
+                .join(', ')}
             </Text>
           </View>
-          <Pressable
-            onPress={() =>
-              router.push(
-                `/checkout?event_id=${event.id}&ticket_id=${selectedTicket.id}&quantity=${qty}` as Href
-              )
-            }
-            style={styles.checkoutBtn}
-          >
+          <Pressable onPress={handleCheckout} style={styles.checkoutBtn}>
             <Text style={styles.checkoutText}>Checkout</Text>
             <MaterialIcons name="arrow-forward" size={18} color="#fff" />
           </Pressable>
@@ -352,6 +386,10 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.regular, fontSize: 14,
     lineHeight: 22, color: 'rgba(30,30,30,0.8)',
   },
+  hintText: {
+    fontFamily: Fonts.regular, fontSize: 12,
+    color: Colors.onSurfaceVariant,
+  },
 
   ticketCat: {
     flexDirection: 'row', alignItems: 'center',
@@ -375,14 +413,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bold, fontSize: 16, color: Colors.wine,
   },
 
-  qtyRow: {
-    flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 14, marginTop: 10,
-    backgroundColor: Colors.cream,
-    borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: '#EADBDB',
-  },
   qtyBtns: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   qtyBtn: {
     width: 34, height: 34, borderRadius: 10,

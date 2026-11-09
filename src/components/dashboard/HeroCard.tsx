@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '@/constants/theme';
 import { formatEventDate, formatRupiah } from '@/utils/format';
+import { optimizeImage } from '@/utils/image';
 
 interface Props {
   title: string;
@@ -24,18 +25,27 @@ export default function HeroCard({
   price,
   onPress,
 }: Props) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [image]);
   return (
     <View style={styles.card}>
       {/* Image / Fallback */}
       <View style={styles.imageWrap}>
-        {image ? (
-          <Image source={{ uri: image }} style={styles.image} resizeMode="cover" />
+        {image && !failed ? (
+          <Image
+            source={{ uri: optimizeImage(image) }}
+            style={styles.image}
+            resizeMode="cover"
+            onError={(e) => {
+              console.warn('Poster gagal dimuat:', image, e.nativeEvent);
+              setFailed(true);
+            }}
+          />
         ) : (
           <View style={[styles.image, styles.imageFallback]}>
             <MaterialIcons name="music-note" size={64} color={Colors.roseDust} />
           </View>
         )}
-
         <LinearGradient
           colors={['transparent', 'rgba(30,30,30,0.35)', 'rgba(30,30,30,0.9)']}
           style={StyleSheet.absoluteFill}

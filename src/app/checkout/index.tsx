@@ -1,7 +1,7 @@
 // src/app/checkout/index.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert, TextInput, Keyboard
+  View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -29,6 +29,43 @@ async function createOrderAPI(payload: any): Promise<CreatedOrder> {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
+type CartLine = { ticket_id: number; quantity: number };
+
+// Baca keranjang dari param `items` (JSON). Tetap mendukung format lama
+// (ticket_id + quantity) supaya link lama tidak rusak.
+function parseCartParams(params: {
+  items?: string;
+  ticket_id?: string;
+  quantity?: string;
+}): CartLine[] {
+  if (params.items) {
+    try {
+      const parsed = JSON.parse(params.items);
+      if (Array.isArray(parsed)) {
+        const merged = new Map<number, number>();
+        for (const row of parsed) {
+          const id = Number(row?.ticket_id);
+          const qty = Math.floor(Number(row?.quantity));
+          if (Number.isFinite(id) && Number.isFinite(qty) && qty > 0) {
+            merged.set(id, (merged.get(id) ?? 0) + qty);
+          }
+        }
+        return Array.from(merged, ([ticket_id, quantity]) => ({ ticket_id, quantity }));
+      }
+    } catch {
+      // abaikan, lanjut ke format lama
+    }
+  }
+  if (params.ticket_id) {
+    const id = Number(params.ticket_id);
+    const qty = Math.floor(Number(params.quantity || 1));
+    if (Number.isFinite(id)) {
+      return [{ ticket_id: id, quantity: Number.isFinite(qty) && qty > 0 ? qty : 1 }];
+    }
+  }
+  return [];
+}
+
 function estimateDiscount(v: Voucher | null, subtotal: number): number {
   if (!v) return 0;
   const value = Number(v.discount_value);
@@ -74,22 +111,23 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     event_id?: string;
+    items?: string;
     ticket_id?: string;
     quantity?: string;
   }>();
 
   const eventId = params.event_id;
-  const ticketId = params.ticket_id;
-  const initialQty = Number(params.quantity || 1);
+  const initialLines = useMemo(
+    () => parseCartParams(params),
+    [params.items, params.ticket_id, params.quantity]
+  );
 
   const [event, setEvent] = useState<EventDetail | null>(null);
-  const [ticket, setTicket] = useState<TicketCategory | null>(null);
+  // Kategori yang dipilih (urutan tetap), dan jumlah per kategori
+  const [lineTickets, setLineTickets] = useState<TicketCategory[]>([]);
+  const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [quantity, setQuantity] = useState(
-    Number.isFinite(initialQty) && initialQty > 0 ? initialQty : 1
-  );
 
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [vouchersLoading, setVouchersLoading] = useState(true);
@@ -98,10 +136,10 @@ export default function CheckoutScreen() {
 
   const [submitting, setSubmitting] = useState(false);
 
-  // ─── Load event + ticket ────────────────────────────────────
+  // ─── Load event + tiket terpilih ────────────────────────────
   useEffect(() => {
     (async () => {
-      if (!eventId || !ticketId) {
+      if (!eventId || initialLines.length === 0) {
         setError('Data tiket tidak lengkap');
         setLoading(false);
         return;
@@ -109,23 +147,31 @@ export default function CheckoutScreen() {
       try {
         setLoading(true);
         const data = await fetchEvent(eventId);
-        const selected = (data.ticket_categories || []).find(
-          (t) => String(t.id) === String(ticketId)
-        );
-        if (!selected) {
+        const all = data.ticket_categories || [];
+
+        const found: TicketCategory[] = [];
+        const qty: Record<number, number> = {};
+        for (const line of initialLines) {
+          const cat = all.find((t) => Number(t.id) === line.ticket_id);
+          if (!cat) continue;
+          found.push(cat);
+          qty[cat.id] = Math.min(Math.max(line.quantity, 1), cat.remaining_stock || 1);
+        }
+
+        if (found.length === 0) {
           setError('Kategori tiket tidak ditemukan');
           return;
         }
         setEvent(data);
-        setTicket(selected);
-        setQuantity((q) => Math.min(Math.max(q, 1), selected.remaining_stock || 1));
+        setLineTickets(found);
+        setQuantities(qty);
       } catch (err: any) {
         setError(err?.response?.data?.message || 'Gagal memuat data checkout');
       } finally {
         setLoading(false);
       }
     })();
-  }, [eventId, ticketId]);
+  }, [eventId, initialLines]);
 
   // ─── Load vouchers ──────────────────────────────────────────
   const loadVouchers = useCallback(async () => {
@@ -149,15 +195,39 @@ export default function CheckoutScreen() {
     loadVouchers();
   }, [loadVouchers]);
 
+  const changeQty = (cat: TicketCategory, delta: number) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [cat.id]: Math.min(
+        cat.remaining_stock || 0,
+        Math.max(0, (prev[cat.id] ?? 0) + delta)
+      ),
+    }));
+  };
+
   // ─── Derived ────────────────────────────────────────────────
   const selectedVoucher = useMemo(
     () => vouchers.find((v) => v.id === selectedVoucherId) || null,
     [vouchers, selectedVoucherId]
   );
 
+  const activeLines = useMemo(
+    () =>
+      lineTickets
+        .map((t) => ({ ticket: t, quantity: quantities[t.id] ?? 0 }))
+        .filter((l) => l.quantity > 0),
+    [lineTickets, quantities]
+  );
+
+  const totalQty = useMemo(
+    () => activeLines.reduce((sum, l) => sum + l.quantity, 0),
+    [activeLines]
+  );
+
   const subtotal = useMemo(
-    () => (ticket ? ticket.price * quantity : 0),
-    [ticket, quantity]
+    () =>
+      activeLines.reduce((sum, l) => sum + Number(l.ticket.price) * l.quantity, 0),
+    [activeLines]
   );
 
   const discount = useMemo(
@@ -174,15 +244,15 @@ export default function CheckoutScreen() {
   const serviceFee = estimateServiceFee(finalPrice, feePercent);
   const grandTotal = finalPrice + serviceFee;
 
-  // Auto-release voucher kalau quantity turun di bawah minimum
+  // Auto-release voucher kalau total tiket turun di bawah minimum
   useEffect(() => {
     if (!selectedVoucher) return;
     const minimum = Number(selectedVoucher.minimum_quantity) || 1;
-    if (quantity < minimum) {
+    if (totalQty < minimum) {
       setSelectedVoucherId(null);
       Alert.alert('Info', `Voucher dilepas, butuh minimal ${minimum} tiket`);
     }
-  }, [quantity, selectedVoucher]);
+  }, [totalQty, selectedVoucher]);
 
   const handleSelectVoucher = (id: number) => {
     setSelectedVoucherId((prev) => (prev === id ? null : id));
@@ -190,15 +260,19 @@ export default function CheckoutScreen() {
 
   // ─── Checkout (Buat order → Midtrans) ───────────────────────
   const handleCheckout = async () => {
-    if (!ticket || !event) return;
-
-    if (quantity < 1) {
-      Alert.alert('Error', 'Minimum pembelian 1 tiket');
+    if (!event || activeLines.length === 0) {
+      Alert.alert('Error', 'Pilih minimal 1 tiket');
       return;
     }
-    if (quantity > ticket.remaining_stock) {
-      Alert.alert('Error', `Stok tersisa hanya ${ticket.remaining_stock}`);
-      return;
+
+    for (const line of activeLines) {
+      if (line.quantity > line.ticket.remaining_stock) {
+        Alert.alert(
+          'Error',
+          `Stok ${line.ticket.category_name} tersisa hanya ${line.ticket.remaining_stock}`
+        );
+        return;
+      }
     }
 
     try {
@@ -207,7 +281,10 @@ export default function CheckoutScreen() {
       const order = await createOrderAPI({
         event_id: Number(eventId),
         user_voucher_id: selectedVoucher?.id ?? null,
-        tickets: [{ ticket_category_id: ticket.id, quantity }],
+        tickets: activeLines.map((l) => ({
+          ticket_category_id: l.ticket.id,
+          quantity: l.quantity,
+        })),
       });
 
       // Redirect ke halaman payment (yang akan buka Midtrans Snap)
@@ -234,7 +311,7 @@ export default function CheckoutScreen() {
     );
   }
 
-  if (error || !event || !ticket) {
+  if (error || !event || lineTickets.length === 0) {
     return (
       <ScreenContainer>
         <View style={styles.center}>
@@ -253,7 +330,7 @@ export default function CheckoutScreen() {
     );
   }
 
-  const soldOut = ticket.remaining_stock === 0;
+  const canPay = totalQty > 0 && !submitting;
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.background }}>
@@ -304,50 +381,68 @@ export default function CheckoutScreen() {
           </View>
         </View>
 
-        {/* Ticket detail */}
+        {/* Ticket detail (satu baris per kategori) */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <MaterialIcons name="confirmation-number" size={16} color={Colors.wine} />
-            <Text style={styles.cardTitle}>Detail Tiket</Text>
+            <Text style={styles.cardTitle}>
+              Detail Tiket{lineTickets.length > 1 ? ` (${lineTickets.length} kategori)` : ''}
+            </Text>
           </View>
 
-          <View style={styles.ticketRow}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.ticketName}>
-                {ticket.category_name || 'Regular'}
-              </Text>
-              <Text style={styles.ticketPrice}>
-                {formatRupiah(ticket.price)} / tiket
-              </Text>
-              {!soldOut && (
-                <Text style={styles.ticketStock}>Sisa {ticket.remaining_stock} tiket</Text>
-              )}
-            </View>
-
-            <View style={styles.qtyRow}>
-              <Pressable
-                onPress={() => setQuantity((q) => Math.max(1, q - 1))}
-                disabled={soldOut}
-                style={styles.qtyBtn}
+          {lineTickets.map((ticket) => {
+            const qty = quantities[ticket.id] ?? 0;
+            const soldOut = ticket.remaining_stock === 0;
+            const maxed = qty >= ticket.remaining_stock;
+            return (
+              <View
+                key={ticket.id}
+                style={[styles.ticketRow, qty === 0 && { opacity: 0.55 }]}
               >
-                <MaterialIcons name="remove" size={16} color={Colors.espresso} />
-              </Pressable>
-              <Text style={styles.qtyText}>{quantity}</Text>
-              <Pressable
-                onPress={() =>
-                  setQuantity((q) => Math.min(ticket.remaining_stock || 0, q + 1))
-                }
-                disabled={soldOut || quantity >= ticket.remaining_stock}
-                style={[styles.qtyBtn, !soldOut && styles.qtyBtnActive]}
-              >
-                <MaterialIcons name="add" size={16} color={soldOut ? Colors.espresso : '#fff'} />
-              </Pressable>
-            </View>
-          </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.ticketName}>
+                    {ticket.category_name || 'Regular'}
+                  </Text>
+                  <Text style={styles.ticketPrice}>
+                    {formatRupiah(ticket.price)} / tiket
+                  </Text>
+                  {soldOut ? (
+                    <Text style={styles.soldOutText}>Tiket kategori ini sudah habis.</Text>
+                  ) : (
+                    <Text style={styles.ticketStock}>
+                      Sisa {ticket.remaining_stock} tiket
+                    </Text>
+                  )}
+                </View>
 
-          {soldOut && (
+                <View style={styles.qtyRow}>
+                  <Pressable
+                    onPress={() => changeQty(ticket, -1)}
+                    disabled={soldOut || qty === 0}
+                    style={[styles.qtyBtn, qty === 0 && { opacity: 0.4 }]}
+                  >
+                    <MaterialIcons name="remove" size={16} color={Colors.espresso} />
+                  </Pressable>
+                  <Text style={styles.qtyText}>{qty}</Text>
+                  <Pressable
+                    onPress={() => changeQty(ticket, 1)}
+                    disabled={soldOut || maxed}
+                    style={[
+                      styles.qtyBtn,
+                      !soldOut && styles.qtyBtnActive,
+                      (soldOut || maxed) && { opacity: 0.4 },
+                    ]}
+                  >
+                    <MaterialIcons name="add" size={16} color={soldOut ? Colors.espresso : '#fff'} />
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+
+          {totalQty === 0 && (
             <Text style={styles.soldOutText}>
-              Tiket kategori ini sudah habis.
+              Pilih minimal 1 tiket untuk melanjutkan.
             </Text>
           )}
         </View>
@@ -358,7 +453,7 @@ export default function CheckoutScreen() {
           loading={vouchersLoading}
           error={vouchersError}
           selectedId={selectedVoucherId}
-          quantity={quantity}
+          quantity={totalQty}
           onSelect={handleSelectVoucher}
           onClear={() => setSelectedVoucherId(null)}
           onRetry={loadVouchers}
@@ -369,12 +464,23 @@ export default function CheckoutScreen() {
           <Text style={styles.cardTitleSimple}>Ringkasan Pembayaran</Text>
 
           <View style={{ gap: 8, marginTop: 10 }}>
-            <View style={styles.sumRow}>
-              <Text style={styles.sumLabel}>
-                Subtotal ({quantity}x {ticket.category_name || 'Tiket'})
-              </Text>
-              <Text style={styles.sumValue}>{formatRupiah(subtotal)}</Text>
-            </View>
+            {activeLines.map((l) => (
+              <View key={l.ticket.id} style={styles.sumRow}>
+                <Text style={[styles.sumLabel, { flex: 1, paddingRight: 8 }]} numberOfLines={1}>
+                  {l.quantity}x {l.ticket.category_name || 'Tiket'}
+                </Text>
+                <Text style={styles.sumValue}>
+                  {formatRupiah(Number(l.ticket.price) * l.quantity)}
+                </Text>
+              </View>
+            ))}
+
+            {activeLines.length > 1 && (
+              <View style={[styles.sumRow, styles.subtotalRow]}>
+                <Text style={styles.sumLabel}>Subtotal ({totalQty} tiket)</Text>
+                <Text style={styles.sumValue}>{formatRupiah(subtotal)}</Text>
+              </View>
+            )}
 
             {discount > 0 && (
               <View style={styles.sumRow}>
@@ -425,10 +531,10 @@ export default function CheckoutScreen() {
       <View style={styles.stickyFooter}>
         <Pressable
           onPress={handleCheckout}
-          disabled={submitting || soldOut}
+          disabled={!canPay}
           style={({ pressed }) => [
             styles.cta,
-            (submitting || soldOut) && { opacity: 0.6 },
+            !canPay && { opacity: 0.6 },
             pressed && { opacity: 0.9 },
           ]}
         >
@@ -551,11 +657,14 @@ const styles = StyleSheet.create({
     minWidth: 24, textAlign: 'center',
   },
   soldOutText: {
-    fontFamily: Fonts.semibold, fontSize: 12.5, color: '#B3261E',
+    fontFamily: Fonts.semibold, fontSize: 12.5, color: '#B3261E', marginTop: 2,
   },
 
   sumRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  },
+  subtotalRow: {
+    paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F0E6E1',
   },
   sumLabel: {
     fontFamily: Fonts.regular, fontSize: 13, color: '#8C7777',
