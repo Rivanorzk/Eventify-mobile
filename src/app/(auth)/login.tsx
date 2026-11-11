@@ -123,7 +123,7 @@ export default function Login() {
                 <Text style={s.rememberText}>Ingat Saya</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity hitSlop={6}>
+              <TouchableOpacity hitSlop={6} onPress={() => router.push('/(auth)/forgot-password')}>
                 <Text style={s.forgotText}>Lupa Kata Sandi?</Text>
               </TouchableOpacity>
             </View>
