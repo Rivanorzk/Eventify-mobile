@@ -813,6 +813,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerLow,
   },
   ticketLineCard: {
+    marginTop: 5,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,

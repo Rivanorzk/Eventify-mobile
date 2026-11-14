@@ -20,11 +20,15 @@ export interface Ticket {
   id: number;
   ticket_code: string;
   status: string;
+  created_at?: string;
+  event_id?: number;
   event_status?: string;
   event_title: string;
   event_date: string;
   start_time?: string;
   location?: string;
+  poster?: string;
+  event_ticket_category_id?: number;
   category_name?: string;
   [k: string]: any;
 }

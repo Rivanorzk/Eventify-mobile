@@ -34,19 +34,6 @@ function parseTime(v?: string | null): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/**
- * Pesanan 'pending' yang batas bayarnya sudah lewat dianggap 'expired',
- * walaupun backend belum sempat mengubah statusnya.
- */
-function withEffectiveStatus(order: Order, now: number): Order {
-  if (order.status?.toLowerCase() !== 'pending') return order;
-  const deadline = parseTime(order.payment_deadline ?? order.expired_at);
-  if (deadline !== null && deadline <= now) {
-    return { ...order, status: 'expired' };
-  }
-  return order;
-}
-
 const isCancelledLike = (o: Order) => {
   const s = o.status?.toLowerCase();
   return s === 'cancelled' || s === 'expired';
@@ -82,16 +69,18 @@ export default function RiwayatScreen() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [now, setNow] = useState(Date.now());
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadOrders = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
+      setLoadError(null);
       const data = await fetchMyOrders();
       setOrders(data);
     } catch (err) {
       console.warn('Load orders error', err);
+      setLoadError('Riwayat pesanan gagal dimuat. Periksa koneksi lalu coba lagi.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -107,17 +96,7 @@ export default function RiwayatScreen() {
     }, [loadOrders])
   );
 
-  // Detak tiap 15 detik supaya pesanan pindah tab otomatis saat batas bayar lewat
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 15000);
-    return () => clearInterval(t);
-  }, []);
-
-  // Status efektif (pending yang lewat batas → expired)
-  const normalized = useMemo(
-    () => orders.map((o) => withEffectiveStatus(o, now)),
-    [orders, now]
-  );
+  const normalized = orders;
 
   // Daftar tahun dinamis: dari data pesanan + tahun berjalan
   const years = useMemo(() => {
@@ -215,7 +194,23 @@ export default function RiwayatScreen() {
       </View>
 
       <View style={{ gap: 16 }}>
-        {visibleOrders.length === 0 && (
+        {loadError && (
+          <View style={styles.empty}>
+            <MaterialIcons name="cloud-off" size={40} color={Colors.outline} />
+            <Text style={styles.emptyTitle}>Riwayat Tidak Dapat Dimuat</Text>
+            <Text style={styles.emptySub}>{loadError}</Text>
+            <Pressable
+              onPress={() => loadOrders(true)}
+              style={({ pressed }) => [
+                styles.retryButton,
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              <Text style={styles.retryButtonText}>Coba Lagi</Text>
+            </Pressable>
+          </View>
+        )}
+        {!loadError && visibleOrders.length === 0 && (
           <View style={styles.empty}>
             <MaterialIcons name="receipt-long" size={40} color={Colors.outline} />
             <Text style={styles.emptyTitle}>Belum Ada Pesanan</Text>
@@ -347,6 +342,18 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
     textAlign: 'center',
     paddingHorizontal: 32,
+  },
+  retryButton: {
+    marginTop: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 9999,
+    backgroundColor: Colors.burgundy,
+  },
+  retryButtonText: {
+    fontFamily: Fonts.semibold,
+    fontSize: 13,
+    color: '#fff',
   },
 
   footerNote: {

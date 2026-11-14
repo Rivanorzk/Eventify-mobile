@@ -14,6 +14,12 @@ export interface PaymentSession {
   server_time?: string;  // jam server, untuk mengoreksi jam HP
 }
 
+export interface PaymentStatus {
+  order_status: OrderStatus;
+  expired_at?: string;
+  server_time?: string;
+}
+
 // Backend (paymentService.createTransaction) mengarahkan Midtrans ke
 // `${FRONTEND_URL}/customer/payment/finish?order_id=...&transaction_status=...`.
 // Di aplikasi mobile URL itu tidak perlu dibuka: WebView cukup mencegatnya.
@@ -29,9 +35,9 @@ export async function createPayment(orderId: string | number): Promise<PaymentSe
   return res.data.data;
 }
 
-export async function checkPaymentStatus(orderId: string | number): Promise<OrderStatus> {
+export async function checkPaymentStatus(orderId: string | number): Promise<PaymentStatus> {
   const res = await api.get(`/payments/order/${orderId}/check-status`);
-  return res.data.data?.order_status;
+  return res.data.data;
 }
 
 /**
@@ -42,7 +48,7 @@ export async function checkStatusWithRetry(
   orderId: string | number,
   tries = 4,
   delayMs = 2000
-): Promise<OrderStatus> {
+): Promise<PaymentStatus> {
   let lastErr: unknown;
   for (let i = 0; i < tries; i++) {
     try {

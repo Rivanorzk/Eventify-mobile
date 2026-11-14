@@ -49,7 +49,7 @@ export function useUnreadCount({ pollMs = 30000 }: Options = {}) {
   // Refetch saat app kembali ke foreground
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (appStateRef.current.match(/inactive|background/) && next === 'active') {
+      if (appStateRef.current?.match(/inactive|background/) && next === 'active') {
         fetchCount();
       }
       appStateRef.current = next;

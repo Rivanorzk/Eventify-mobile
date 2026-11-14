@@ -48,7 +48,6 @@ export default function PaymentScreen() {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
   const busyRef = useRef(false);
-  const expiredHandledRef = useRef(false);
   const initRef = useRef(false);
   const clockOffsetRef = useRef(0); // Selisih jam server - jam hp (ms)
 
@@ -113,10 +112,25 @@ export default function PaymentScreen() {
     async (source: FinalizeSource) => {
       if (!id || busyRef.current) return;
       busyRef.current = true;
-      setPhase('verifying');
+      if (source !== 'expired') setPhase('verifying');
 
       try {
-        const status = await checkStatusWithRetry(id);
+        const paymentStatus = await checkStatusWithRetry(id);
+        const status = paymentStatus.order_status;
+
+        if (source === 'expired' && paymentStatus.expired_at) {
+          const serverMs = paymentStatus.server_time
+            ? new Date(paymentStatus.server_time).getTime()
+            : NaN;
+          if (Number.isFinite(serverMs)) {
+            clockOffsetRef.current = serverMs - Date.now();
+          }
+
+          const providerDeadline = new Date(paymentStatus.expired_at).getTime();
+          if (Number.isFinite(providerDeadline)) {
+            setExpiresAt(providerDeadline);
+          }
+        }
 
         if (status === 'paid') {
           Alert.alert('Pembayaran berhasil', 'E-ticket Anda sudah terbit.', [
@@ -131,11 +145,13 @@ export default function PaymentScreen() {
             setPhase('paying');
             return;
           }
+          if (source === 'expired') {
+            setPhase('paying');
+            return;
+          }
           Alert.alert(
-            source === 'expired' ? 'Waktu pembayaran habis' : 'Menunggu pembayaran',
-            source === 'expired'
-              ? 'Pesanan akan dibatalkan otomatis.'
-              : 'Selesaikan pembayaran dari menu Riwayat sebelum waktunya habis.',
+            'Menunggu pembayaran',
+            'Selesaikan pembayaran dari menu Riwayat sebelum waktunya habis.',
             [{ text: 'Lihat Riwayat', onPress: () => router.replace(RIWAYAT_HREF) }],
             { cancelable: false }
           );
@@ -149,6 +165,14 @@ export default function PaymentScreen() {
           { cancelable: false }
         );
       } catch (err: any) {
+        if (source === 'expired') {
+          console.warn(
+            'Belum berhasil mengonfirmasi status kedaluwarsa ke Midtrans:',
+            err?.response?.data?.message || err?.message
+          );
+          setPhase('paying');
+          return;
+        }
         Alert.alert(
           'Gagal memeriksa status',
           err?.response?.data?.message || 'Periksa koneksi Anda lalu coba lagi.'
@@ -172,10 +196,13 @@ export default function PaymentScreen() {
   }, [expiresAt]);
 
   useEffect(() => {
-    if (secondsLeft === 0 && phase === 'paying' && !expiredHandledRef.current) {
-      expiredHandledRef.current = true;
-      finalize('expired');
-    }
+    if (secondsLeft !== 0 || phase !== 'paying') return;
+
+    void finalize('expired');
+    const timer = setInterval(() => {
+      void finalize('expired');
+    }, 5000);
+    return () => clearInterval(timer);
   }, [secondsLeft, phase, finalize]);
 
   // ─── 4. Keluar halaman (pesanan tetap pending sampai expired) ─
@@ -236,9 +263,16 @@ export default function PaymentScreen() {
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.headerTitle}>Pembayaran</Text>
         {order && (
-          <Text style={styles.headerSub} numberOfLines={1}>
-            {order.invoice_number} · {formatRupiah(payableTotal(order))}
-          </Text>
+          <View>
+            <Text style={styles.headerSub} numberOfLines={1}>
+              {order.invoice_number} · {formatRupiah(payableTotal(order))}
+            </Text>
+            {secondsLeft === 0 && phase === 'paying' && (
+              <Text style={styles.expiryWait}>
+                Menunggu konfirmasi kedaluwarsa dari Midtrans...
+              </Text>
+            )}
+          </View>
         )}
       </View>
 
@@ -364,6 +398,12 @@ const styles = StyleSheet.create({
   headerSub: {
     fontFamily: Fonts.regular, fontSize: 11.5,
     color: Colors.onSurfaceVariant, marginTop: 1,
+  },
+  expiryWait: {
+    fontFamily: Fonts.regular,
+    fontSize: 10,
+    color: Colors.wine,
+    marginTop: 2,
   },
   timer: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
